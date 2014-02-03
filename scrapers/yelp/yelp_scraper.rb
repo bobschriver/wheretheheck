@@ -27,6 +27,7 @@ neighborhoods = neighborhoods_db.execute("select (neighborhood_name) from neighb
 	if neighborhood_replacements.key? neighborhood_name[0]
 		neighborhood_replacements[neighborhood_name[0]] 
 	else
+		#Have to convert spaces to +'s for the yelp url to be valid
 		neighborhood_name[0].gsub(" ", "+")
 	end
 end
@@ -37,7 +38,7 @@ $yelp_db = SQLite3::Database.new("../../data/yelp.db")
 
 def insert_businesses(access_token , base_path , max_results , base_offset, category, business_filter)
 	
-
+	#Step through 20 (max yelp allows) results at a time
 	for offset in (base_offset..max_results).step(20)
 		path = "#{base_path}&offset=#{offset}" 
 
@@ -47,28 +48,23 @@ def insert_businesses(access_token , base_path , max_results , base_offset, cate
 
 		sql = ""
 
-
 		for business in business_json['businesses']
 
 			location = business['location']['address']
 
 			if not location.empty?
 				id = business['id']
+				
+				#Yelp returns a 0-5 with .5 increments, I just want an integer
 				rating = (business['rating'].to_f * 2).to_i
 				review_count = business['review_count'].to_i
 
 				url = business['url']
 			
-				#Yelp doesn't like this, so move this to a seperate slower daemon later
-				#doc = Nokogiri::HTML(open("#{url}"))
-				#cost_string = doc.css('span.price-range')[0].text
-				#cost = cost_string.length
-				
-				#Could do two seperate inserts here rather than passing the category
+				#Could do two seperate inserts here rather than passing the category as a parameter
 				sql += "insert or ignore into business (yelp_id, category, rating, num_ratings, location, url) values ('#{id}', '#{category}', #{rating}, #{review_count}, '#{location.first.gsub("'", "")}', '#{url}');"
 			end
 		end
-		p sql
 		
 		$yelp_db.execute_batch(sql)
 		
@@ -83,7 +79,9 @@ for category in categories
 	for neighborhood in neighborhoods
 
 		base_path = "#{search_path}category_filter=#{category}&location=#{neighborhood}+Seattle"
+		#We go up to 39 so we just get two pages of results
 		insert_businesses(access_token , base_path, 39, 0, category, "")
+		#Gotta stay under that daily request cap
 		sleep(30)
 	end
 end
