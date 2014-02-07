@@ -62,7 +62,8 @@ transit_center_neighborhood_map = {
 	"Seattle Center" => "Lower Queen Anne",
 	"North Queen Anne Hill" => "Queen Anne",
 	"Wedgewood" => "Wedgwood",
-	"Northwest Hostpital" => "Haller Lake"}
+	"Northwest Hostpital" => "Haller Lake"
+}
 
 
 neighborhoods_id = db.execute("select neighborhood_name,neighborhood_id from neighborhoods")
@@ -75,65 +76,75 @@ routes_id = db.execute("select route_number,route_id from routes")
 routes_id_map = Hash[*routes_id.flatten]
 
 
-doc = Nokogiri::HTML(open("#{url}"))
-inner_bound = doc.css('.alpha')
-
-route_number_elements = inner_bound.css('div.route_number')
-neighborhood_elements = inner_bound.css('p')
-
-route_number_strings = route_number_elements.map do |route_number_element| 
-	route_number_element.css('a')[0].text.strip
+doc = Nokogiri::HTML(open("#{url}")) do |config|
+	config.noblanks
 end
 
-neighborhoods_strings = neighborhood_elements.map do |neighborhood_element| 
-	neighborhood_element.children[0].text
-end
+inner_bound = doc.at_css('.alpha').at_css('div')
 
-route_neighborhoods_pairs = route_number_strings.zip(neighborhoods_strings)
+inner_bound.children.each_slice(4) do |first_blank, header, second_blank, content|
+	if first_blank.nil? or header.nil? or second_blank.nil? or content.nil?
+		break
+	end
 
-routes_seen = Array.new
+	neighborhood_global = header.at_css('a').text.strip
 
-for route_neighborhoods_pair in route_neighborhoods_pairs
-	route_number = route_neighborhoods_pair[0]
-	route_id = routes_id_map[route_number]
+	p neighborhood_global
 
-	if not route_id.nil? and not routes_seen.include?(route_number)
+	route_number_elements = content.css('div.route_number')
+	neighborhood_elements = content.css('p')
 
-		routes_seen.push(route_number)
+	route_number_strings = route_number_elements.map do |route_number_element| 
+		route_number_element.at_css('a').text.strip
+	end
 
-		neighborhoods_string = route_neighborhoods_pair[1]
+	neighborhoods_strings = neighborhood_elements.map do |neighborhood_element| 
+		neighborhood_element.children.first.text
+	end
 
-		#Contains all of the "neighborhoods" listed as serviced by the metro website
-		neighborhoods_arr = neighborhoods_string.split(",")
+	route_neighborhoods_pairs = route_number_strings.zip(neighborhoods_strings)
 
-		neighborhood_route_sql = ""
-		found_neighborhood_for_route = false
+	p route_neighborhoods_pairs
 
-		for neighborhood in neighborhoods_arr
+	for route_neighborhoods_pair in route_neighborhoods_pairs
+		route_number = route_neighborhoods_pair[0]
+		route_id = routes_id_map[route_number]
 
-			neighborhood.strip!
+		if not route_id.nil?
 
-			#Could be nil
-			neighborhood_from_tc = transit_center_neighborhood_map[neighborhood]
+			neighborhoods_string = route_neighborhoods_pair[1]
 
-			if not neighborhood_from_tc.nil?
-				neighborhood = neighborhood_from_tc
+			#Contains all of the "neighborhoods" listed as serviced by the metro website
+			neighborhoods_arr = neighborhoods_string.split(",")
+			neighborhoods_arr.push(neighborhood_global)
+
+			neighborhood_route_sql = ""
+			found_neighborhood_for_route = false
+
+			for neighborhood in neighborhoods_arr
+
+				neighborhood.strip!
+
+				#Could be nil
+				neighborhood_from_tc = transit_center_neighborhood_map[neighborhood]
+
+				if not neighborhood_from_tc.nil?
+					neighborhood = neighborhood_from_tc
+				end
+
+				neighborhood_id = neighborhoods_id_map[neighborhood]
+
+				if not neighborhood_id.nil?
+					found_neighborhood_for_route = true
+					neighborhood_route_sql += "insert into neighborhood_route (neighborhood_id,route_id) values (#{neighborhood_id},#{route_id});";
+				end
 			end
 
-			neighborhood_id = neighborhoods_id_map[neighborhood]
-			
-			if not neighborhood_id.nil?
-				found_neighborhood_for_route = true
-				neighborhood_route_sql += "insert into neighborhood_route (neighborhood_id,route_id) values (#{neighborhood_id},#{route_id});";
-			end
-		end
+			if found_neighborhood_for_route
+				db.execute_batch(neighborhood_route_sql)
 
-		if found_neighborhood_for_route
-			db.execute(neighborhood_route_sql)
-		
-			p "Inserted for route #{route_number}:#{route_id}"
+				p "Inserted for route #{route_number}:#{route_id}"
+			end
 		end
 	end
 end
-
-
