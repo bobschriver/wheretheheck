@@ -2,7 +2,7 @@ import sqlite3
 import numpy
 import scipy
 
-from numpy import ones,zeros,convolve
+from numpy import ones,zeros,convolve,median
 from scipy.misc import imsave
 from scipy.ndimage.filters import *
 
@@ -67,24 +67,24 @@ sig_digits = 4
 
 gtm = generate_general_transit_matrix(boundaries, sig_digits)
 
-gtm_norm = gtm * (255 / (gtm.mean()))
+gtm_norm = gtm * (255 / (median(gtm[gtm > 0])))
 
 gtm_norm[gtm_norm > 255] = 255
 
-imsave("gtm_norm.jpg", gaussian_filter(gtm_norm, 1.5))
+imsave("gtm_norm.jpg", uniform_filter(gtm_norm, 10))
 
-neighborhoods = ["South Lake Union", "Wallingford", "Beacon Hill"]
+neighborhoods = ["South Lake Union", "Wallingford"]
 
 ndtm = generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, neighborhoods)
 
-imsave("ndtm_norm.jpg", gaussian_filter(ndtm, 1.5))
+imsave("ndtm_norm.jpg", uniform_filter(ndtm, 10))
 
 gtm_ndtm = gtm
 
-gtm_ndtm_norm = gtm_ndtm * (255 / (gtm_ndtm.mean()))
+gtm_ndtm_norm = gtm_ndtm * (255 / (median(gtm_ndtm[gtm_ndtm > 0])))
 
 gtm_ndtm_norm[gtm_ndtm_norm > 255] = 255
 
 gtm_ndtm_norm += ndtm
 
-imsave("gtm_ndtm_norm.jpg", gaussian_filter(gtm_ndtm_norm, 1.5))
+imsave("gtm_ndtm_norm.jpg", uniform_filter(gtm_ndtm_norm, 10))
