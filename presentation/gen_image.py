@@ -3,7 +3,7 @@ import numpy
 import scipy
 
 from numpy import ones,zeros,convolve,median
-from scipy.misc import imsave
+from scipy.misc import imsave,imread,imresize
 from scipy.ndimage.filters import *
 
 def generate_matrix(boundaries, sig_digits, data_list):
@@ -53,7 +53,39 @@ def generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, nei
 	stops = cursor.execute(query, neighborhoods)
 
 	ndtm = generate_matrix(boundaries, sig_digits, stops)
+	
 	return ndtm
+
+def generate_business_quality_matrix_for_category(boundaries, sig_digits, category):
+	conn = sqlite3.connect('../data/yelp.db')
+	cursor = conn.cursor()
+
+	query = "SELECT latitude, longitude, rating, num_ratings FROM businesses WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND yelp_id IN (SELECT yelp_id FROM business_category WHERE category_id = (SELECT category_id FROM categories WHERE category_name=?))"
+
+	quality_raw = cursor.execute(query , [category])
+
+	quality = [[quality_data[0], quality_data[1], quality_data[2] * quality_data[3]] for quality_data in quality_raw]
+	
+	bqm = generate_matrix(boundaries, sig_digits, quality)
+	
+	return bqm
+
+def generate_business_quality_matrix(boundaries, sig_digits, categories):
+	#This just generates a zeros matrix
+	bqm = generate_matrix(boundaries, sig_digits, [])
+
+	for category,category_weight in categories:
+		bqm_category = generate_business_quality_matrix_for_category(boundaries, sig_digits, category)
+		#Will cache these and apply weights dynamically in the future
+		#imsave(category + ".tiff", bqm_category)
+
+		#TODO: Normalize
+		bqm_category_weighted = bqm_category * category_weight
+		imsave(category + ".tiff", gaussian_filter(bqm_category_weighted, 10))
+		
+		bqm += bqm_category_weighted
+
+	return bqm
 
 north_bound = 47.73414
 south_bound = 47.50000
@@ -65,26 +97,24 @@ boundaries = [north_bound, south_bound, east_bound, west_bound]
 
 sig_digits = 4
 
+print "Creating general transit matrix"
 gtm = generate_general_transit_matrix(boundaries, sig_digits)
-
 gtm_norm = gtm * (255 / (median(gtm[gtm > 0])))
-
 gtm_norm[gtm_norm > 255] = 255
+imsave("gtm_norm.tiff", gaussian_filter(gtm_norm, 10))
 
-imsave("gtm_norm.jpg", uniform_filter(gtm_norm, 10))
-
+print "Creating neighborhood destination transit matrix"
 neighborhoods = ["South Lake Union", "Wallingford"]
-
 ndtm = generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, neighborhoods)
+imsave("ndtm_norm.tiff", gaussian_filter(ndtm, 10))
 
-imsave("ndtm_norm.jpg", uniform_filter(ndtm, 10))
+print "Creating business quality matrix"
+categories = [['markets', 5] , ['grocery' , 4] , ['restaurants' , 3] , ['bars' , 1]]
+bqm = generate_business_quality_matrix(boundaries, sig_digits, categories)
+bqm_norm = bqm * (255 / (median(bqm[bqm > 0])))
+bqm_norm[bqm_norm > 255] = 255
+imsave("bqm_norm.tiff", gaussian_filter(bqm_norm , 10))
 
-gtm_ndtm = gtm
-
-gtm_ndtm_norm = gtm_ndtm * (255 / (median(gtm_ndtm[gtm_ndtm > 0])))
-
-gtm_ndtm_norm[gtm_ndtm_norm > 255] = 255
-
-gtm_ndtm_norm += ndtm
-
-imsave("gtm_ndtm_norm.jpg", uniform_filter(gtm_ndtm_norm, 10))
+print "Creating final image"
+total_norm = gtm_norm + ndtm + bqm_norm
+imsave("total.tiff", gaussian_filter(total_norm, 10))
