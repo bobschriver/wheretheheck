@@ -2,9 +2,15 @@ import sqlite3
 import numpy
 import scipy
 
-from numpy import ones,zeros,convolve,median
+from numpy import ones,zeros,convolve,median,dstack
 from scipy.misc import imsave,imread,imresize
 from scipy.ndimage.filters import *
+
+def normalize_image(image):
+	norm_image = image * (255 / (median(image[image > 0])))
+	norm_image[norm_image > 255] = 255
+
+	return norm_image
 
 def generate_matrix(boundaries, sig_digits, data_list):
 	north_bound = boundaries[0]
@@ -79,11 +85,11 @@ def generate_business_quality_matrix(boundaries, sig_digits, categories):
 		#Will cache these and apply weights dynamically in the future
 		#imsave(category + ".tiff", bqm_category)
 
-		#TODO: Normalize
-		bqm_category_weighted = bqm_category * category_weight
-		imsave(category + ".tiff", gaussian_filter(bqm_category_weighted, 10))
+		print "Creating %s business quality matrix" % category
+		bqm_category_norm = normalize_image(bqm_category)
+		imsave(category + ".tiff", gaussian_filter(bqm_category_norm, 10))
 		
-		bqm += bqm_category_weighted
+		bqm += bqm_category_norm * category_weight
 
 	return bqm
 
@@ -99,8 +105,7 @@ sig_digits = 4
 
 print "Creating general transit matrix"
 gtm = generate_general_transit_matrix(boundaries, sig_digits)
-gtm_norm = gtm * (255 / (median(gtm[gtm > 0])))
-gtm_norm[gtm_norm > 255] = 255
+gtm_norm = normalize_image(gtm)
 imsave("gtm_norm.tiff", gaussian_filter(gtm_norm, 10))
 
 print "Creating neighborhood destination transit matrix"
@@ -109,12 +114,16 @@ ndtm = generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, 
 imsave("ndtm_norm.tiff", gaussian_filter(ndtm, 10))
 
 print "Creating business quality matrix"
-categories = [['markets', 5] , ['grocery' , 4] , ['restaurants' , 3] , ['bars' , 1]]
+categories = [['markets', 20] , ['grocery' , 15] , ['restaurants' , 10] , ['bars' , 5]]
 bqm = generate_business_quality_matrix(boundaries, sig_digits, categories)
-bqm_norm = bqm * (255 / (median(bqm[bqm > 0])))
-bqm_norm[bqm_norm > 255] = 255
+bqm_norm = normalize_image(bqm)
 imsave("bqm_norm.tiff", gaussian_filter(bqm_norm , 10))
 
 print "Creating final image"
 total_norm = gtm_norm + ndtm + bqm_norm
 imsave("total.tiff", gaussian_filter(total_norm, 10))
+
+print "Creating color image"
+total_norm_color = dstack((gaussian_filter(gtm_norm , 10), gaussian_filter(ndtm, 10) , gaussian_filter(bqm_norm , 10)))
+print total_norm_color.shape
+imsave("total_color.tiff", total_norm_color)
