@@ -93,6 +93,29 @@ def generate_business_quality_matrix(boundaries, sig_digits, categories):
 
 	return bqm
 
+def generate_apartment_cost_matrix(boundaries, sig_digits):
+	conn = sqlite3.connect('../data/craigslist.db')
+	cursor = conn.cursor()
+
+	query = "SELECT latitude,longitude,price,square_feet FROM apartments WHERE price > 0 AND square_feet > 0"
+
+	cursor.execute(query)
+
+	#Aparently the iterator is consumed, so we just fetch all results here
+	cost_raw = cursor.fetchall()
+	
+	prices_per_sqft = [cost_data[2] / float(cost_data[3]) for cost_data in cost_raw]
+	prices_per_sqft_median = median(prices_per_sqft)
+
+	#This will create a negative value for apartments above the price / sqft median
+	#and positive for those above it
+	cost = [[cost_data[0], cost_data[1], (prices_per_sqft_median - (cost_data[2] / float(cost_data[3]))) * 50] for cost_data in cost_raw]
+	print cost
+
+	acm = generate_matrix(boundaries, sig_digits, cost)
+
+	return acm
+
 north_bound = 47.73414
 south_bound = 47.50000
 
@@ -103,13 +126,17 @@ boundaries = [north_bound, south_bound, east_bound, west_bound]
 
 sig_digits = 4
 
+print "Creating apartment cost matrix"
+acm = generate_apartment_cost_matrix(boundaries, sig_digits)
+imsave("acm.tiff", gaussian_filter(acm , 10))
+
 print "Creating general transit matrix"
 gtm = generate_general_transit_matrix(boundaries, sig_digits)
 gtm_norm = normalize_image(gtm)
 imsave("gtm_norm.tiff", gaussian_filter(gtm_norm, 10))
 
 print "Creating neighborhood destination transit matrix"
-neighborhoods = ["South Lake Union", "Wallingford"]
+neighborhoods = ["South Lake Union", "Delridge", "Capitol Hill", "Fremont"]
 ndtm = generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, neighborhoods)
 imsave("ndtm_norm.tiff", gaussian_filter(ndtm, 10))
 
@@ -120,10 +147,5 @@ bqm_norm = normalize_image(bqm)
 imsave("bqm_norm.tiff", gaussian_filter(bqm_norm , 10))
 
 print "Creating final image"
-total_norm = gtm_norm + ndtm + bqm_norm
+total_norm = gtm_norm + ndtm + bqm_norm + acm
 imsave("total.tiff", gaussian_filter(total_norm, 10))
-
-print "Creating color image"
-total_norm_color = dstack((gaussian_filter(gtm_norm , 10), gaussian_filter(ndtm, 10) , gaussian_filter(bqm_norm , 10)))
-print total_norm_color.shape
-imsave("total_color.tiff", total_norm_color)
