@@ -1,7 +1,9 @@
 import sqlite3
 import numpy
 import scipy
+import matplotlib.pyplot
 
+from matplotlib.pyplot import get_cmap
 from numpy import ones,zeros,convolve,median,dstack
 from scipy.misc import imsave,imread,imresize
 from scipy.ndimage.filters import *
@@ -110,7 +112,6 @@ def generate_apartment_cost_matrix(boundaries, sig_digits):
 	#This will create a negative value for apartments above the price / sqft median
 	#and positive for those above it
 	cost = [[cost_data[0], cost_data[1], (prices_per_sqft_median - (cost_data[2] / float(cost_data[3]))) * 50] for cost_data in cost_raw]
-	print cost
 
 	acm = generate_matrix(boundaries, sig_digits, cost)
 
@@ -146,6 +147,8 @@ bqm = generate_business_quality_matrix(boundaries, sig_digits, categories)
 bqm_norm = normalize_image(bqm)
 imsave("bqm_norm.tiff", gaussian_filter(bqm_norm , 10))
 
+cmap = get_cmap('jet')
+
 print "Creating final image"
-total_norm = gtm_norm + ndtm + bqm_norm + acm
-imsave("total.tiff", gaussian_filter(total_norm, 10))
+total_norm = gtm_norm + ndtm + bqm_norm
+imsave("total.tiff", cmap(gaussian_filter(total_norm, 10)))
