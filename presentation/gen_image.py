@@ -4,13 +4,12 @@ import scipy
 import matplotlib.pyplot
 import matplotlib.cm
 
-from matplotlib.cm import jet
 from matplotlib.pyplot import hexbin,show
 from numpy import ones,zeros,convolve,median,dstack
 from scipy.misc import imsave,imread,imresize
 from scipy.ndimage.filters import *
 
-def modify_lat_long_to_x_y(boundaries, sig_digits, data_list):
+def lat_long_to_x_y(boundaries, sig_digits, data_list):
 	north_bound = boundaries[0]
 	south_bound = boundaries[1]
 	east_bound = boundaries[2]
@@ -35,13 +34,15 @@ def modify_lat_long_to_x_y(boundaries, sig_digits, data_list):
 		
 		if norm_value > norm_max:
 			norm_value = norm_max
+		
+		if north_bound > latitude > south_bound and west_bound > longitude > east_bound: 
 
-		x_index = int(abs(longitude - east_bound) * sig_digits_shift)
-		y_index = int((latitude - south_bound) * sig_digits_shift)
+			x_index = int(abs(longitude - east_bound) * sig_digits_shift)
+			y_index = int((latitude - south_bound) * sig_digits_shift)
 
-		shifted_data[0].append(x_index)
-		shifted_data[1].append(y_index)
-		shifted_data[2].append(norm_value)
+			shifted_data[0].append(x_index)
+			shifted_data[1].append(y_index)
+			shifted_data[2].append(norm_value)
 	
 	return shifted_data
 
@@ -51,7 +52,7 @@ def generate_general_transit_list(boundaries, sig_digits):
 
 	stops = cursor.execute("select latitude,longitude,trips_count from stops").fetchall()
 
-	gtl = modify_lat_long_to_x_y(boundaries, sig_digits, stops)
+	gtl = lat_long_to_x_y(boundaries, sig_digits, stops)
 
 	return gtl
 
@@ -69,36 +70,31 @@ def generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, nei
 	
 	return ndtm
 
-def generate_business_quality_matrix_for_category(boundaries, sig_digits, category):
+def generate_business_quality_list_for_category(boundaries, sig_digits, category, category_weight):
 	conn = sqlite3.connect('../data/yelp.db')
 	cursor = conn.cursor()
 
 	query = "SELECT latitude, longitude, rating, num_ratings FROM businesses WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND yelp_id IN (SELECT yelp_id FROM business_category WHERE category_id = (SELECT category_id FROM categories WHERE category_name=?))"
 
-	quality_raw = cursor.execute(query , [category])
+	quality_raw = cursor.execute(query , [category]).fetchall()
 
-	quality = [[quality_data[0], quality_data[1], quality_data[2] * quality_data[3]] for quality_data in quality_raw]
+	quality = [[quality_data[0], quality_data[1], quality_data[2] * quality_data[3]] * category_weight for quality_data in quality_raw]
 	
-	bqm = generate_matrix(boundaries, sig_digits, quality)
-	
-	return bqm
+	bql = lat_long_to_x_y(boundaries, sig_digits, quality)
 
-def generate_business_quality_matrix(boundaries, sig_digits, categories):
-	#This just generates a zeros matrix
-	bqm = generate_matrix(boundaries, sig_digits, [])
+	return bql
 
+def generate_business_quality_list(boundaries, sig_digits, categories):
+
+	bql = [[], [], []]
 	for category,category_weight in categories:
-		bqm_category = generate_business_quality_matrix_for_category(boundaries, sig_digits, category)
-		#Will cache these and apply weights dynamically in the future
-		#imsave(category + ".tiff", bqm_category)
+		bql_category = generate_business_quality_list_for_category(boundaries, sig_digits, category, category_weight)
+			
+		bql[0] += bql_category[0]
+		bql[1] += bql_category[1]
+		bql[2] += bql_category[2]
 
-		print "Creating %s business quality matrix" % category
-		bqm_category_norm = normalize_image(bqm_category)
-		imsave(category + ".tiff", gaussian_filter(bqm_category_norm, 10))
-		
-		bqm += bqm_category_norm * category_weight
-
-	return bqm
+	return bql
 
 def generate_apartment_cost_matrix(boundaries, sig_digits):
 	conn = sqlite3.connect('../data/craigslist.db')
@@ -135,9 +131,6 @@ print "Creating apartment cost matrix"
 
 print "Creating general transit list"
 gtl = generate_general_transit_list(boundaries, sig_digits)
-print len(gtl[0]),len(gtl[1]),len(gtl[2])
-hexbin(gtl[0], gtl[1], gtl[2], gridsize=(40,60), cmap=jet)
-show()
 
 print "Creating neighborhood destination transit list"
 neighborhoods = ["South Lake Union", "Delridge", "Capitol Hill", "Fremont"]
@@ -145,6 +138,15 @@ neighborhoods = ["South Lake Union", "Delridge", "Capitol Hill", "Fremont"]
 
 print "Creating business quality matrix"
 categories = [['markets', 20] , ['grocery' , 15] , ['restaurants' , 10] , ['bars' , 5]]
-#bql = generate_business_quality_list(boundaries, categories)
+bql = generate_business_quality_list(boundaries, sig_digits, categories)
+
+total = [[], [], []]
+
+total[0] = gtl[0] + bql[0]
+total[1] = gtl[1] + bql[1]
+total[2] = gtl[2] + bql[2]
+
+hexbin(total[0], total[1], total[2], gridsize=(40,60))
+show()
 
 
