@@ -8,9 +8,9 @@ from numpy import ones,zeros,convolve,median,dstack
 from scipy.misc import imsave,imread,imresize
 from scipy.ndimage.filters import *
 
-def normalize_image(image):
-	norm_image = image * (255 / (median(image[image > 0])))
-	norm_image[norm_image > 255] = 255
+def normalize_image(image, image_median):
+	norm_image = image * (image_median / (median(image[image > 0])))
+	norm_image[norm_image > 128] = 128
 
 	return norm_image
 
@@ -56,7 +56,7 @@ def generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, nei
 
 	placeholders = ', '.join('?' * len(neighborhoods))
 
-	query = "SELECT latitude,longitude,255 FROM stops WHERE stop_id IN (SELECT stop_id FROM route_stop WHERE route_id IN (SELECT route_id FROM neighborhood_route WHERE neighborhood_id IN (SELECT neighborhood_id FROM neighborhoods WHERE neighborhood_name IN (%s))))" % placeholders
+	query = "SELECT latitude,longitude,64 FROM stops WHERE stop_id IN (SELECT stop_id FROM route_stop WHERE route_id IN (SELECT route_id FROM neighborhood_route WHERE neighborhood_id IN (SELECT neighborhood_id FROM neighborhoods WHERE neighborhood_name IN ({0}))))".format(placeholders)
 
 	stops = cursor.execute(query, neighborhoods)
 
@@ -84,11 +84,9 @@ def generate_business_quality_matrix(boundaries, sig_digits, categories):
 
 	for category,category_weight in categories:
 		bqm_category = generate_business_quality_matrix_for_category(boundaries, sig_digits, category)
-		#Will cache these and apply weights dynamically in the future
-		#imsave(category + ".tiff", bqm_category)
 
-		print "Creating %s business quality matrix" % category
-		bqm_category_norm = normalize_image(bqm_category)
+		print("Creating {0} business quality matrix".format(category))
+		bqm_category_norm = normalize_image(bqm_category , 64)
 		imsave(category + ".tiff", gaussian_filter(bqm_category_norm, 10))
 		
 		bqm += bqm_category_norm * category_weight
@@ -127,28 +125,30 @@ boundaries = [north_bound, south_bound, east_bound, west_bound]
 
 sig_digits = 4
 
-print "Creating apartment cost matrix"
+print("Creating apartment cost matrix")
 acm = generate_apartment_cost_matrix(boundaries, sig_digits)
 imsave("acm.tiff", gaussian_filter(acm , 10))
 
-print "Creating general transit matrix"
+print("Creating general transit matrix")
 gtm = generate_general_transit_matrix(boundaries, sig_digits)
-gtm_norm = normalize_image(gtm)
-imsave("gtm_norm.tiff", gaussian_filter(gtm_norm, 10))
+gtm_norm = normalize_image(gtm, 64)
+gtm_norm_filtered = gaussian_filter(gtm_norm, 10)
+imsave("gtm_norm.tiff", gtm_norm_filtered)
 
-print "Creating neighborhood destination transit matrix"
+print("Creating neighborhood destination transit matrix")
 neighborhoods = ["South Lake Union", "Delridge", "Capitol Hill", "Fremont"]
 ndtm = generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, neighborhoods)
-imsave("ndtm_norm.tiff", gaussian_filter(ndtm, 10))
+ndtm_filtered = gaussian_filter(ndtm, 10)
+imsave("ndtm_norm.tiff", ndtm_filtered)
 
-print "Creating business quality matrix"
+print("Creating business quality matrix")
 categories = [['markets', 20] , ['grocery' , 15] , ['restaurants' , 10] , ['bars' , 5]]
 bqm = generate_business_quality_matrix(boundaries, sig_digits, categories)
-bqm_norm = normalize_image(bqm)
-imsave("bqm_norm.tiff", gaussian_filter(bqm_norm , 10))
+bqm_filtered = gaussian_filter(bqm, 10)
+imsave("bqm_norm.tiff", bqm_filtered)
 
 cmap = get_cmap('jet')
 
-print "Creating final image"
-total_norm = gtm_norm + ndtm + bqm_norm
+print("Creating final image")
+total_norm = gtm_norm_filtered + ndtm_filtered + bqm_filtered
 imsave("total.tiff", cmap(gaussian_filter(total_norm, 10)))
