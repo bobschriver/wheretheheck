@@ -86,7 +86,7 @@ def generate_business_quality_matrix(boundaries, sig_digits, categories):
 		bqm_category = generate_business_quality_matrix_for_category(boundaries, sig_digits, category)
 
 		print("Creating {0} business quality matrix".format(category))
-		bqm_category_norm = normalize_image(bqm_category , 64)
+		bqm_category_norm = normalize_image(bqm_category , 32)
 		imsave(category + ".tiff", gaussian_filter(bqm_category_norm, 10))
 		
 		bqm += bqm_category_norm * category_weight
@@ -109,7 +109,7 @@ def generate_apartment_cost_matrix(boundaries, sig_digits):
 
 	#This will create a negative value for apartments above the price / sqft median
 	#and positive for those above it
-	cost = [[cost_data[0], cost_data[1], (prices_per_sqft_median - (cost_data[2] / float(cost_data[3]))) * 50] for cost_data in cost_raw]
+	cost = [[cost_data[0], cost_data[1], (prices_per_sqft_median - (cost_data[2] / float(cost_data[3]))) * 32] for cost_data in cost_raw]
 
 	acm = generate_matrix(boundaries, sig_digits, cost)
 
@@ -127,22 +127,23 @@ sig_digits = 4
 
 print("Creating apartment cost matrix")
 acm = generate_apartment_cost_matrix(boundaries, sig_digits)
-imsave("acm.tiff", gaussian_filter(acm , 10))
+acm_filtered = gaussian_filter(acm , 15)
+imsave("acm.tiff", acm_filtered)
 
 print("Creating general transit matrix")
 gtm = generate_general_transit_matrix(boundaries, sig_digits)
 gtm_norm = normalize_image(gtm, 64)
-gtm_norm_filtered = gaussian_filter(gtm_norm, 10)
+gtm_norm_filtered = gaussian_filter(gtm_norm, 15)
 imsave("gtm_norm.tiff", gtm_norm_filtered)
 
 print("Creating neighborhood destination transit matrix")
-neighborhoods = ["South Lake Union", "Delridge", "Capitol Hill", "Fremont"]
+neighborhoods = ["South Lake Union", "Delridge"]
 ndtm = generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, neighborhoods)
-ndtm_filtered = gaussian_filter(ndtm, 10)
+ndtm_filtered = gaussian_filter(ndtm, 15)
 imsave("ndtm_norm.tiff", ndtm_filtered)
 
 print("Creating business quality matrix")
-categories = [['markets', 20] , ['grocery' , 15] , ['restaurants' , 10] , ['bars' , 5]]
+categories = [['markets', 5] , ['grocery' , 4] , ['restaurants' , 2] , ['bars' , 1]]
 bqm = generate_business_quality_matrix(boundaries, sig_digits, categories)
 bqm_filtered = gaussian_filter(bqm, 10)
 imsave("bqm_norm.tiff", bqm_filtered)
@@ -150,5 +151,5 @@ imsave("bqm_norm.tiff", bqm_filtered)
 cmap = get_cmap('jet')
 
 print("Creating final image")
-total_norm = gtm_norm_filtered + ndtm_filtered + bqm_filtered
-imsave("total.tiff", cmap(gaussian_filter(total_norm, 10)))
+total_norm = gtm_norm_filtered + ndtm_filtered + bqm_filtered + acm_filtered
+imsave("total.png", cmap(gaussian_filter(total_norm, 10)))
