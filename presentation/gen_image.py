@@ -35,8 +35,8 @@ def generate_matrix(boundaries, sig_digits, data_list):
 		if (north_bound > latitude > south_bound) and (west_bound > longitude > east_bound):
 			x_index = int(abs(longitude - east_bound) * sig_digits_shift)
 			y_index = int((north_bound - latitude) * sig_digits_shift)
-
-			matrix[y_index, x_index] += value
+			
+			matrix[y_index, x_index] = max(value, matrix[y_index, x_index])
 	
 	return matrix
 
@@ -86,7 +86,6 @@ def generate_business_quality_matrix(boundaries, sig_digits, categories):
 		print("Creating {0} business quality matrix".format(category))
 		bqm_category_filtered = gaussian_filter(bqm_category, 10)
 		imsave(category + ".tiff", bqm_category_filtered)
-
 		bqm += bqm_category * category_weight
 
 	return bqm
@@ -141,12 +140,14 @@ ndtm_filtered = gaussian_filter(ndtm, 15)
 imsave("ndtm_norm.tiff", ndtm_filtered)
 
 print("Creating business quality matrix")
-categories = [['markets', 25] , ['grocery' , 20] , ['restaurants' , 15] , ['bars' , 10]]
+categories = [['markets', 5] , ['grocery' , 2.5] , ['restaurants' , 1] , ['bars' , .5]]
 bqm = generate_business_quality_matrix(boundaries, sig_digits, categories)
-imsave("bqm_norm.tiff", bqm)
+bqm_norm = normalize_image(bqm, 32)
+bqm_norm_filtered = gaussian_filter(bqm_norm , 10)
+imsave("bqm_norm.tiff", bqm_norm_filtered)
 
 cmap = get_cmap('jet')
 
 print("Creating final image")
-total_norm = gtm_norm_filtered + ndtm_filtered + bqm + acm_filtered
-imsave("total.png", cmap(gaussian_filter(total_norm, 10)))
+total_norm = gtm_norm_filtered + ndtm_filtered + acm_filtered + bqm_norm_filtered
+imsave("total.png", cmap(total_norm))
