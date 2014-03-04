@@ -135,7 +135,7 @@ def generate_apartment_cost_matrix(boundaries, sig_digits):
 
 	#This will create a negative value for apartments above the price / sqft median
 	#and positive for those above it
-	cost = [[cost_data[0], cost_data[1], (prices_per_sqft_median - (cost_data[2] / float(cost_data[3]))) * 48] for cost_data in cost_raw]
+	cost = [[cost_data[0], cost_data[1], (prices_per_sqft_median - (cost_data[2] / float(cost_data[3]))) * 128] for cost_data in cost_raw]
 
 	acm = generate_matrix(boundaries, sig_digits, cost, accumulate_matrix_value)
 
@@ -153,32 +153,39 @@ sig_digits = 4
 
 print("Creating apartment cost matrix")
 acm = generate_apartment_cost_matrix(boundaries, sig_digits)
-acm_filtered = gaussian_filter(acm , 20)
-imsave("acm.tiff", acm_filtered)
+acm_filtered = gaussian_filter(acm , 10)
+print(median(acm_filtered[acm_filtered != 0]))
+print(acm_filtered.max())
+imsave("acm.png", acm_filtered)
 
 print("Creating general transit matrix")
 gtm = generate_general_transit_matrix(boundaries, sig_digits)
 gtm_norm = normalize_image(gtm, 64, 128)
 gtm_norm_filtered = gaussian_filter(gtm_norm, 10)
-imsave("gtm_norm.tiff", gtm_norm_filtered)
+print(median(gtm_norm_filtered[acm_filtered != 0]))
+print(gtm_norm_filtered.max())
+imsave("gtm_norm.png", gtm_norm_filtered)
 
 print("Creating neighborhood destination transit matrix")
 neighborhoods = ["South Lake Union", "Delridge"]
 ndtm = generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, neighborhoods)
 ndtm_filtered = gaussian_filter(ndtm, 15)
-imsave("ndtm_norm.tiff", ndtm_filtered)
+print(median(ndtm_filtered[ndtm_filtered != 0]))
+print(ndtm_filtered.max())
+imsave("ndtm_norm.png", ndtm_filtered)
 
 print("Creating business quality matrix")
 
 categories = [['markets', 5] , ['grocery' , 2] , ['restaurants' , .5] , ['bars' , .2]]
 bqm = generate_business_quality_matrix(boundaries, sig_digits, categories)
 bqm_filtered = gaussian_filter(bqm, 10)
-imsave("bqm_filtered.png", bqm_filtered)
 bqm_filtered = gaussify_histogram(bqm_filtered)
+print(median(bqm_filtered[bqm_filtered != 0]))
+print(bqm_filtered.max())
 imsave("bqm_norm.png", bqm_filtered)
 
 cmap = get_cmap('jet')
 
 print("Creating final image")
-total_norm = gtm_norm_filtered + ndtm_filtered + acm_filtered + bqm_filtered
+total_norm = gaussian_filter(gtm_norm_filtered + ndtm_filtered + acm_filtered + bqm_filtered , 5)
 imsave("total.png", cmap(total_norm))
