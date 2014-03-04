@@ -2,19 +2,40 @@ import sqlite3
 import numpy
 import scipy
 import matplotlib.pyplot
+import math
 
+from math import log
 from matplotlib.pyplot import get_cmap
-from numpy import ones,zeros,convolve,median,dstack
+from numpy import ones,zeros,convolve,median,dstack,sqrt,sign
 from scipy.misc import imsave,imread,imresize
 from scipy.ndimage.filters import *
 
-def normalize_image(image, image_median):
+# A little bit complicated. Basically tries to turn the histogram into a gaussian curve
+def gaussify_histogram(image):
+	zeroes = image == 0
+	non_zeroes = image > 0
+
+	non_zero_median = median(image[non_zeroes])
+	
+	image = image - non_zero_median
+	sign_matrix = sign(image)
+	image = image * sign_matrix
+	image = sqrt(image)
+	image = image * sign_matrix
+	image = image + non_zero_median
+	
+	return image
+
+def normalize_image(image, image_median, image_max):
 	norm_image = image * (image_median / (median(image[image > 0])))
-	norm_image[norm_image > 128] = 128
+	cutoff_image(norm_image, image_max)
 
 	return norm_image
 
-def generate_matrix(boundaries, sig_digits, data_list):
+def cutoff_image(image, image_max):
+	image[image > image_max] = image_max
+
+def generate_matrix(boundaries, sig_digits, data_list, matrix_value):
 	north_bound = boundaries[0]
 	south_bound = boundaries[1]
 	east_bound = boundaries[2]
@@ -35,10 +56,16 @@ def generate_matrix(boundaries, sig_digits, data_list):
 		if (north_bound > latitude > south_bound) and (west_bound > longitude > east_bound):
 			x_index = int(abs(longitude - east_bound) * sig_digits_shift)
 			y_index = int((north_bound - latitude) * sig_digits_shift)
-			
-			matrix[y_index, x_index] = max(value, matrix[y_index, x_index])
+		
+			matrix[y_index, x_index] = matrix_value(matrix[y_index, x_index], value)
 	
 	return matrix
+
+def accumulate_matrix_value(curr_value, new_value):
+	return curr_value + new_value
+
+def accumulate_matrix_value_ln(curr_value, new_value):
+	return curr_value + log(curr_value + new_value)
 
 def generate_general_transit_matrix(boundaries, sig_digits):
 	conn = sqlite3.connect('../data/busses.db')
@@ -46,7 +73,7 @@ def generate_general_transit_matrix(boundaries, sig_digits):
 
 	stops = cursor.execute("select latitude,longitude,trips_count from stops")
 
-	gtm = generate_matrix(boundaries, sig_digits, stops)
+	gtm = generate_matrix(boundaries, sig_digits, stops, accumulate_matrix_value)
 
 	return gtm
 
@@ -60,7 +87,7 @@ def generate_neighborhood_destination_transit_matrix(boundaries, sig_digits, nei
 
 	stops = cursor.execute(query, neighborhoods)
 
-	ndtm = generate_matrix(boundaries, sig_digits, stops)
+	ndtm = generate_matrix(boundaries, sig_digits, stops, accumulate_matrix_value)
 	
 	return ndtm
 
@@ -68,24 +95,26 @@ def generate_business_quality_matrix_for_category(boundaries, sig_digits, catego
 	conn = sqlite3.connect('../data/yelp.db')
 	cursor = conn.cursor()
 
-	query = "SELECT latitude, longitude,rating FROM businesses WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND num_ratings > 25 AND num_ratings < 250 AND rating > 6 AND yelp_id IN (SELECT yelp_id FROM business_category WHERE category_id = (SELECT category_id FROM categories WHERE category_name=?))"
+	query = "SELECT latitude,longitude,128 FROM businesses WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND num_ratings > 25 AND rating > 6 AND yelp_id IN (SELECT yelp_id FROM business_category WHERE category_id = (SELECT category_id FROM categories WHERE category_name=?))"
 
 	quality= cursor.execute(query , [category])
 
-	bqm = generate_matrix(boundaries, sig_digits, quality)
+	bqm = generate_matrix(boundaries, sig_digits, quality, max)
 	
 	return bqm
 
 def generate_business_quality_matrix(boundaries, sig_digits, categories):
 	#This just generates a zeros matrix
-	bqm = generate_matrix(boundaries, sig_digits, [])
+	bqm = generate_matrix(boundaries, sig_digits, [], accumulate_matrix_value)
+	
+	sum_category_weight = 15
 
 	for category,category_weight in categories:
 		bqm_category = generate_business_quality_matrix_for_category(boundaries, sig_digits, category)
 
 		print("Creating {0} business quality matrix".format(category))
-		bqm_category_filtered = gaussian_filter(bqm_category, 10)
-		imsave(category + ".tiff", bqm_category_filtered)
+		imsave(category + ".tiff", bqm_category)
+
 		bqm += bqm_category * category_weight
 
 	return bqm
@@ -108,7 +137,7 @@ def generate_apartment_cost_matrix(boundaries, sig_digits):
 	#and positive for those above it
 	cost = [[cost_data[0], cost_data[1], (prices_per_sqft_median - (cost_data[2] / float(cost_data[3]))) * 48] for cost_data in cost_raw]
 
-	acm = generate_matrix(boundaries, sig_digits, cost)
+	acm = generate_matrix(boundaries, sig_digits, cost, accumulate_matrix_value)
 
 	return acm
 
@@ -129,7 +158,7 @@ imsave("acm.tiff", acm_filtered)
 
 print("Creating general transit matrix")
 gtm = generate_general_transit_matrix(boundaries, sig_digits)
-gtm_norm = normalize_image(gtm, 64)
+gtm_norm = normalize_image(gtm, 64, 128)
 gtm_norm_filtered = gaussian_filter(gtm_norm, 10)
 imsave("gtm_norm.tiff", gtm_norm_filtered)
 
@@ -140,14 +169,16 @@ ndtm_filtered = gaussian_filter(ndtm, 15)
 imsave("ndtm_norm.tiff", ndtm_filtered)
 
 print("Creating business quality matrix")
-categories = [['markets', 5] , ['grocery' , 2.5] , ['restaurants' , 1] , ['bars' , .5]]
+
+categories = [['markets', 5] , ['grocery' , 2] , ['restaurants' , .5] , ['bars' , .2]]
 bqm = generate_business_quality_matrix(boundaries, sig_digits, categories)
-bqm_norm = normalize_image(bqm, 32)
-bqm_norm_filtered = gaussian_filter(bqm_norm , 10)
-imsave("bqm_norm.tiff", bqm_norm_filtered)
+bqm_filtered = gaussian_filter(bqm, 10)
+imsave("bqm_filtered.png", bqm_filtered)
+bqm_filtered = gaussify_histogram(bqm_filtered)
+imsave("bqm_norm.png", bqm_filtered)
 
 cmap = get_cmap('jet')
 
 print("Creating final image")
-total_norm = gtm_norm_filtered + ndtm_filtered + acm_filtered + bqm_norm_filtered
+total_norm = gtm_norm_filtered + ndtm_filtered + acm_filtered + bqm_filtered
 imsave("total.png", cmap(total_norm))
